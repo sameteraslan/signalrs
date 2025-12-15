@@ -250,11 +250,10 @@ impl<'a> InvocationBuilder<'a> {
 }
 
 fn args_as_option(arguments: Vec<serde_json::Value>) -> Option<Vec<serde_json::Value>> {
-    if arguments.is_empty() {
-        None
-    } else {
-        Some(arguments)
-    }
+    // Always return Some to ensure arguments field is always serialized
+    // Even if empty, the server expects "arguments": [] in the JSON
+    // This matches Python signalrcore library behavior
+    Some(arguments)
 }
 
 fn get_stream_ids(streams: &[ClientStream]) -> Vec<String> {

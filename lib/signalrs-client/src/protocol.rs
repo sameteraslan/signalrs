@@ -107,7 +107,9 @@ impl<A> Invocation<A> {
     pub fn non_blocking(target: impl Into<String>, arguments: Option<A>) -> Self {
         Invocation {
             r#type: MessageType::Invocation,
-            headers: None,
+            // Always include empty headers to match Python signalrcore behavior
+            // Server expects this field to be present even if empty
+            headers: Some(HashMap::new()),
             invocation_id: None,
             target: target.into(),
             arguments,
@@ -151,7 +153,8 @@ impl<A> StreamInvocation<A> {
     ) -> Self {
         StreamInvocation {
             r#type: MessageType::StreamInvocation,
-            headers: None,
+            // Always include empty headers to match Python signalrcore behavior
+            headers: Some(HashMap::new()),
             invocation_id: invocation_id.into(),
             target: target.into(),
             arguments,

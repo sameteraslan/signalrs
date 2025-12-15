@@ -4,6 +4,7 @@ use super::{hub::Hub, transport, SignalRClient};
 use crate::{
     messages::ClientMessage, protocol::NegotiateResponseV0, transport::error::TransportError,
 };
+use std::collections::HashMap;
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -36,6 +37,7 @@ pub struct ClientBuilder {
     port: Option<usize>,
     query_string: Option<String>,
     hub_path: Option<String>,
+    custom_headers: HashMap<String, String>,
 }
 
 /// Authentication for negotiate and further network connection
@@ -94,6 +96,7 @@ impl ClientBuilder {
             port: None,
             query_string: None,
             hub_path: None,
+            custom_headers: HashMap::new(),
         }
     }
 
@@ -115,6 +118,11 @@ impl ClientBuilder {
     /// Specifies authentication to use
     pub fn use_authentication(mut self, auth: Auth) -> Self {
         self.auth = auth;
+        self
+    }
+
+    pub fn add_header(mut self, key: impl ToString, value: impl ToString) -> Self {
+        self.custom_headers.insert(key.to_string(), value.to_string());
         self
     }
 
@@ -184,13 +192,51 @@ impl ClientBuilder {
 
         let url = format!("{}://{}?{}", scheme, domain_and_path, query);
 
-        let (ws_handle, _) = tokio_tungstenite::connect_async(url)
-            .await
-            .map_err(|error| BuilderError::Transport {
-                source: TransportError::Websocket { source: error },
-            })?;
+        // If we have custom headers, we need to build a custom request
+        if !self.custom_headers.is_empty() {
+            use tokio_tungstenite::tungstenite::handshake::client::Request;
 
-        Ok(ws_handle)
+            // Build host header (domain:port without path)
+            let host_header = if let Some(port) = self.port {
+                format!("{}:{}", self.domain, port)
+            } else {
+                self.domain.clone()
+            };
+
+            let mut request_builder = Request::builder()
+                .uri(&url)
+                .header("Host", &host_header)
+                .header("Connection", "Upgrade")
+                .header("Upgrade", "websocket")
+                .header("Sec-WebSocket-Version", "13")
+                .header("Sec-WebSocket-Key", tokio_tungstenite::tungstenite::handshake::client::generate_key());
+
+            // Add custom headers
+            for (key, value) in &self.custom_headers {
+                request_builder = request_builder.header(key, value);
+            }
+
+            let request = request_builder
+                .body(())
+                .map_err(|e| BuilderError::Url(format!("Failed to build request: {}", e)))?;
+
+            let (ws_handle, _) = tokio_tungstenite::connect_async(request)
+                .await
+                .map_err(|error| BuilderError::Transport {
+                    source: TransportError::Websocket { source: error },
+                })?;
+
+            Ok(ws_handle)
+        } else {
+            // No custom headers, use the simple connect method
+            let (ws_handle, _) = tokio_tungstenite::connect_async(url)
+                .await
+                .map_err(|error| BuilderError::Transport {
+                    source: TransportError::Websocket { source: error },
+                })?;
+
+            Ok(ws_handle)
+        }
     }
 
     async fn get_server_supported_features(&self) -> Result<NegotiateResponseV0, NegotiateError> {
@@ -208,6 +254,11 @@ impl ClientBuilder {
             Auth::Basic { user, password } => request.basic_auth(user, password.clone()),
             Auth::Bearer { token } => request.bearer_auth(token),
         };
+
+        // Add custom headers to negotiate request
+        for (key, value) in &self.custom_headers {
+            request = request.header(key, value);
+        }
 
         let http_response = request.send().await?.error_for_status()?;
 
