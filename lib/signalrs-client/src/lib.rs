@@ -95,6 +95,7 @@ pub mod builder;
 pub mod error;
 pub mod hub;
 pub mod invocation;
+pub mod subject;
 
 mod messages;
 mod protocol;
