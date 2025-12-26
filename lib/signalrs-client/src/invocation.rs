@@ -91,6 +91,11 @@ impl<'a> InvocationBuilder<'a> {
                 let stream_id = Uuid::new_v4().to_string();
                 let client_stream = into_client_stream::<B>(stream_id, stream, self.encoding);
                 self.streams.push(client_stream);
+
+                // Add null placeholder to arguments array for the stream position
+                // The server expects a placeholder in arguments to indicate where the stream goes
+                // This matches Python signalrcore behavior where Subject arguments create placeholders
+                self.arguments.push(serde_json::Value::Null);
             }
         };
 
